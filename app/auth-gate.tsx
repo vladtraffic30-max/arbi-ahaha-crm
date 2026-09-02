@@ -25,6 +25,7 @@ export default function AuthGate() {
   const [cooldown, setCooldown] = useState(0);
   const [message, setMessage] = useState("");
   const [membersOpen, setMembersOpen] = useState(false);
+  const [magicLink, setMagicLink] = useState("");
 
   useEffect(() => {
     const hash = new URLSearchParams(window.location.hash.slice(1));
@@ -83,13 +84,39 @@ export default function AuthGate() {
     setCooldown(60); setSent(true); setMessage("Лист надіслано. Натисни Sign in у новому листі.");
   }
 
+  async function useMagicLink(event: FormEvent) {
+    event.preventDefault();
+    setMessage("Перевіряємо посилання…");
+    try {
+      const url = new URL(magicLink.trim());
+      const tokenHash = url.searchParams.get("token") ?? url.searchParams.get("token_hash");
+      const type = url.searchParams.get("type") ?? "magiclink";
+      if (!tokenHash) throw new Error("У посиланні немає токена входу");
+      const response = await fetch(`${SUPABASE_URL}/auth/v1/verify`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ token_hash: tokenHash, type }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || !body.access_token || !body.refresh_token) {
+        throw new Error(String(body.msg ?? body.message ?? "Посилання недійсне або вже використане"));
+      }
+      const next = { access_token: body.access_token, refresh_token: body.refresh_token, expires_at: body.expires_at, user: body.user ?? { email } };
+      localStorage.setItem(SESSION_KEY, JSON.stringify(next));
+      setSession(next);
+      setMessage("");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Не вдалося відкрити посилання");
+    }
+  }
+
   function signOut(clearMessage = true) {
     localStorage.removeItem(SESSION_KEY); setSession(null); setMember(null); setChecking(false);
     if (clearMessage) setMessage("");
   }
 
   if (checking) return <div className="auth-screen"><div className="auth-card"><div className="auth-logo">A</div><h1>ARBI X TEAM</h1><p>Перевіряємо доступ…</p></div></div>;
-  if (!session || !member) return <div className="auth-screen"><div className="auth-card"><div className="auth-logo">A</div><span>ЗАКРИТА CRM</span><h1>Вхід по email</h1><p>Увійти можуть тільки користувачі, яких додав власник.</p><form onSubmit={sendCode}><label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" /></label><button type="submit" disabled={cooldown > 0}>{cooldown > 0 ? `Повторно через ${cooldown} с` : sent ? "Надіслати посилання ще раз" : "Отримати посилання"}</button></form>{sent && <button className="auth-link" onClick={() => { setSent(false); setMessage(""); }}>Змінити email</button>}{message && <div className="auth-message">{message}</div>}</div></div>;
+  if (!session || !member) return <div className="auth-screen"><div className="auth-card"><div className="auth-logo">A</div><span>ЗАКРИТА CRM</span><h1>Вхід по email</h1><p>Увійти можуть тільки користувачі, яких додав власник.</p><form onSubmit={sendCode}><label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" /></label><button type="submit" disabled={cooldown > 0}>{cooldown > 0 ? `Повторно через ${cooldown} с` : sent ? "Надіслати посилання ще раз" : "Отримати посилання"}</button></form><form onSubmit={useMagicLink}><label>Посилання з листа<input type="url" value={magicLink} onChange={(e) => setMagicLink(e.target.value)} placeholder="Встав сюди адресу кнопки Sign in" required /></label><button type="submit">Увійти за посиланням</button></form><p>Якщо Sign in відкриває localhost: натисни на ньому правою кнопкою, скопіюй адресу й встав вище.</p>{sent && <button className="auth-link" onClick={() => { setSent(false); setMessage(""); }}>Змінити email</button>}{message && <div className="auth-message">{message}</div>}</div></div>;
 
   return <><CRMApp user={{ name: member.name || member.email.split("@")[0], email: member.email }} /><div className="auth-user-tools"><span>{member.email}</span>{member.role === "OWNER" && <button onClick={() => setMembersOpen(true)}>Користувачі</button>}<button onClick={() => signOut()}>Вийти</button></div>{membersOpen && <MembersDialog session={session} onClose={() => setMembersOpen(false)} />}</>;
 }
