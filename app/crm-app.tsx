@@ -154,6 +154,7 @@ export default function CRMApp({ user }: { user: { name: string; email: string }
   async function convertLead(record: CrmRecord) {
     const updated = await saveRecord("lead", { ...record.data, status: "Оплачено" }, record.id);
     if (!updated) return;
+    notify("Ліда перенесено — заповни картку учня");
     setModal({ type: "student", draft: { ...initialData("student"), name: value(record.data, "name"), telegram: value(record.data, "telegram"), phone: value(record.data, "phone"), source: value(record.data, "source"), tariff: value(record.data, "tariff"), totalPrice: PRICES[value(record.data, "tariff")] ?? 290, manager: value(record.data, "manager"), cohortId: value(record.data, "cohortId"), cohortName: value(record.data, "cohortName"), comment: value(record.data, "comment") } });
   }
 
@@ -240,7 +241,7 @@ function RecordRow({ record, groups, onEdit, onArchive, onConvert, onDetail }: {
     {record.type === "cohort" && (() => { const students = groups.student.filter((item) => value(item.data, "cohortId") === record.id); const ids = students.map((item) => item.id); const revenue = groups.payment.filter((item) => ids.includes(value(item.data, "studentId"))).reduce((sum, item) => sum + num(item.data, "amount"), 0); const expenses = groups.expense.filter((item) => value(item.data, "cohortId") === record.id).reduce((sum, item) => sum + num(item.data, "amount"), 0); return <><td><strong>{value(d, "name")}</strong><small className="table-sub">{value(d, "startDate")} → {value(d, "endDate")}</small></td><td>{students.length} / {num(d, "goal")}</td><td className="money positive">{money(revenue)}</td><td className="money negative">{money(expenses)}</td><td className="money">{money(revenue - expenses)}</td><td><Status text={value(d, "status")} /></td></>; })()}
     {record.type === "team" && <><td>{person(value(d, "name"))}</td><td>{value(d, "email") || "—"}</td><td>{value(d, "role")}</td><td><Status text={value(d, "status")} /></td></>}
     {record.type === "split" && <><td>{person(value(d, "name"))}</td><td>{value(d, "role")}</td><td className="money positive">{num(d, "percent")}%</td></>}
-    <td><div className="row-actions">{record.type === "lead" && value(d, "status") !== "Оплачено" && <button title="Перевести в учні" onClick={() => onConvert(record)}>✓</button>}<button title="Редагувати" onClick={() => onEdit(record)}>✎</button><button className="delete" title="В архів" onClick={() => onArchive(record)}>□</button></div></td>
+    <td><div className="row-actions">{record.type === "lead" && value(d, "status") !== "Оплачено" && <button aria-label="Перевести ліда в учні" title="Перевести ліда в учні" onClick={() => onConvert(record)}>✓</button>}<button aria-label="Редагувати запис" title="Редагувати" onClick={() => onEdit(record)}>✎</button><button className="delete" aria-label="Перемістити в архів" title="В архів" onClick={() => onArchive(record)}>□</button></div></td>
   </tr>;
 }
 
