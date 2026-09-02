@@ -21,11 +21,9 @@ export default function AuthGate() {
   const [member, setMember] = useState<Member | null>(null);
   const [checking, setChecking] = useState(true);
   const [email, setEmail] = useState("evgen.aff1@gmail.com");
-  const [sent, setSent] = useState(false);
-  const [cooldown, setCooldown] = useState(0);
+  const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [membersOpen, setMembersOpen] = useState(false);
-  const [magicLink, setMagicLink] = useState("");
 
   useEffect(() => {
     const hash = new URLSearchParams(window.location.hash.slice(1));
@@ -47,12 +45,6 @@ export default function AuthGate() {
     void validate(session);
   }, [session]);
 
-  useEffect(() => {
-    if (cooldown <= 0) return;
-    const timer = window.setInterval(() => setCooldown((value) => Math.max(0, value - 1)), 1000);
-    return () => window.clearInterval(timer);
-  }, [cooldown]);
-
   async function validate(current: Session) {
     setChecking(true);
     const userResponse = await fetch(`${SUPABASE_URL}/auth/v1/user`, { headers: headers(current.access_token) });
@@ -66,48 +58,23 @@ export default function AuthGate() {
     setSession(next); setMember(rows[0]); setChecking(false);
   }
 
-  async function sendCode(event: FormEvent) {
+  async function signIn(event: FormEvent) {
     event.preventDefault();
-    if (cooldown > 0) return;
-    setMessage("Надсилаємо лист…");
-    const redirectTo = "https://arbi-ahaha-crm.vercel.app";
-    const response = await fetch(`${SUPABASE_URL}/auth/v1/otp?redirect_to=${encodeURIComponent(redirectTo)}`, { method: "POST", headers: headers(), body: JSON.stringify({ email: email.trim().toLowerCase(), create_user: true, gotrue_meta_security: {} }) });
+    setMessage("Входимо…");
+    const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ email: email.trim().toLowerCase(), password, gotrue_meta_security: {} }),
+    });
+    const body = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const body = await response.json().catch(() => ({}));
-      const error = String(body.msg ?? body.message ?? "");
-      if (response.status === 429 || error.toLowerCase().includes("rate limit")) {
-        setCooldown(60);
-        setMessage("Забагато повторних запитів. Зачекай 60 секунд — кнопка активується сама.");
-      } else setMessage(error || "Не вдалося надіслати лист");
+      setMessage(response.status === 400 ? "Неправильна пошта або пароль" : String(body.msg ?? body.message ?? "Не вдалося увійти"));
       return;
     }
-    setCooldown(60); setSent(true); setMessage("Лист надіслано. Натисни Sign in у новому листі.");
-  }
-
-  async function useMagicLink(event: FormEvent) {
-    event.preventDefault();
-    setMessage("Перевіряємо посилання…");
-    try {
-      const url = new URL(magicLink.trim());
-      const tokenHash = url.searchParams.get("token") ?? url.searchParams.get("token_hash");
-      const type = url.searchParams.get("type") ?? "magiclink";
-      if (!tokenHash) throw new Error("У посиланні немає токена входу");
-      const response = await fetch(`${SUPABASE_URL}/auth/v1/verify`, {
-        method: "POST",
-        headers: headers(),
-        body: JSON.stringify({ token_hash: tokenHash, type }),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok || !body.access_token || !body.refresh_token) {
-        throw new Error(String(body.msg ?? body.message ?? "Посилання недійсне або вже використане"));
-      }
-      const next = { access_token: body.access_token, refresh_token: body.refresh_token, expires_at: body.expires_at, user: body.user ?? { email } };
-      localStorage.setItem(SESSION_KEY, JSON.stringify(next));
-      setSession(next);
-      setMessage("");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Не вдалося відкрити посилання");
-    }
+    const next = { access_token: body.access_token, refresh_token: body.refresh_token, expires_at: body.expires_at, user: body.user ?? { email } };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(next));
+    setSession(next);
+    setMessage("");
   }
 
   function signOut(clearMessage = true) {
@@ -116,7 +83,7 @@ export default function AuthGate() {
   }
 
   if (checking) return <div className="auth-screen"><div className="auth-card"><div className="auth-logo">A</div><h1>ARBI X TEAM</h1><p>Перевіряємо доступ…</p></div></div>;
-  if (!session || !member) return <div className="auth-screen"><div className="auth-card"><div className="auth-logo">A</div><span>ЗАКРИТА CRM</span><h1>Вхід по email</h1><p>Увійти можуть тільки користувачі, яких додав власник.</p><form onSubmit={sendCode}><label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" /></label><button type="submit" disabled={cooldown > 0}>{cooldown > 0 ? `Повторно через ${cooldown} с` : sent ? "Надіслати посилання ще раз" : "Отримати посилання"}</button></form><form onSubmit={useMagicLink}><label>Посилання з листа<input type="url" value={magicLink} onChange={(e) => setMagicLink(e.target.value)} placeholder="Встав сюди адресу кнопки Sign in" required /></label><button type="submit">Увійти за посиланням</button></form><p>Якщо Sign in відкриває localhost: натисни на ньому правою кнопкою, скопіюй адресу й встав вище.</p>{sent && <button className="auth-link" onClick={() => { setSent(false); setMessage(""); }}>Змінити email</button>}{message && <div className="auth-message">{message}</div>}</div></div>;
+  if (!session || !member) return <div className="auth-screen"><div className="auth-card"><div className="auth-logo">A</div><span>ЗАКРИТА CRM</span><h1>Вхід у CRM</h1><p>Увійти можуть тільки користувачі, яких додав власник.</p><form onSubmit={signIn}><label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" /></label><label>Пароль<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" /></label><button type="submit">Увійти</button></form>{message && <div className="auth-message">{message}</div>}</div></div>;
 
   return <><CRMApp user={{ name: member.name || member.email.split("@")[0], email: member.email }} /><div className="auth-user-tools"><span>{member.email}</span>{member.role === "OWNER" && <button onClick={() => setMembersOpen(true)}>Користувачі</button>}<button onClick={() => signOut()}>Вийти</button></div>{membersOpen && <MembersDialog session={session} onClose={() => setMembersOpen(false)} />}</>;
 }
