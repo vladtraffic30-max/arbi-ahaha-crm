@@ -44,6 +44,8 @@ const money = (amount: number) => new Intl.NumberFormat("en-US", { style: "curre
 const value = (data: Data, key: string) => String(data[key] ?? "");
 const num = (data: Data, key: string) => Number(data[key] ?? 0);
 const isArchived = (record: CrmRecord) => Boolean(record.data.archived);
+const RECORDS_STORAGE_KEY = "franklin-crm-records";
+const SETTINGS_STORAGE_KEY = "franklin-crm-settings";
 
 function initialData(type: EditableType): Data {
   if (type === "lead") return { name: "", telegram: "", phone: "", source: "Telegram", status: "Новий", tariff: "Базовий", manager: "", cohortId: "", cohortName: "", nextContactDate: addDays(1), comment: "" };
@@ -79,11 +81,19 @@ export default function CRMApp({ user }: { user: { name: string; email: string }
   }, []);
 
   useEffect(() => {
-    Promise.all([fetch("/api/data").then((r) => r.json()), fetch("/api/settings").then((r) => r.json())])
-      .then(([data, config]) => { setRecords(data.records ?? []); setSettings(config.settings ?? {}); })
-      .catch(() => notify("Не вдалося завантажити CRM"))
-      .finally(() => setLoading(false));
+    try {
+      setRecords(JSON.parse(window.localStorage.getItem(RECORDS_STORAGE_KEY) ?? "[]"));
+      setSettings(JSON.parse(window.localStorage.getItem(SETTINGS_STORAGE_KEY) ?? "{}"));
+    } catch {
+      notify("Локальні дані пошкоджені — CRM відкрито порожньою");
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    if (!loading) window.localStorage.setItem(RECORDS_STORAGE_KEY, JSON.stringify(records));
+  }, [loading, records]);
 
   function notify(message: string) { setToast(message); window.setTimeout(() => setToast(""), 2800); }
 
@@ -112,30 +122,30 @@ export default function CRMApp({ user }: { user: { name: string; email: string }
   async function saveRecord(type: EditableType, data: Data, id?: string) {
     setSaving(true);
     try {
-      const response = await fetch("/api/data", { method: id ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(id ? { id, data } : { type, data }) });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error);
-      setRecords((current) => id ? current.map((record) => record.id === id ? result.record : record) : [result.record, ...current]);
+      const timestamp = new Date().toISOString();
+      const record: CrmRecord = id
+        ? { ...(records.find((item) => item.id === id) as CrmRecord), data, updatedAt: timestamp }
+        : { id: crypto.randomUUID(), type, data, createdBy: user.email, createdAt: timestamp, updatedAt: timestamp };
+      setRecords((current) => id ? current.map((item) => item.id === id ? record : item) : [record, ...current]);
       setModal(null);
       notify(id ? "Запис оновлено" : "Запис додано");
-      return result.record as CrmRecord;
+      return record;
     } catch { notify("Помилка збереження"); return null; }
     finally { setSaving(false); }
   }
 
   async function archiveRecord(record: CrmRecord) {
     if (!window.confirm("Перемістити запис в архів? Його можна буде відновити.")) return;
-    const response = await fetch(`/api/data?id=${encodeURIComponent(record.id)}&type=${record.type}`, { method: "DELETE" });
-    const result = await response.json();
-    if (response.ok) { setRecords((current) => current.map((item) => item.id === record.id ? result.record : item)); notify("Переміщено в архів"); }
-    else notify("Не вдалося архівувати");
+    const updated = { ...record, data: { ...record.data, archived: true, archivedAt: new Date().toISOString(), archivedBy: user.email }, updatedAt: new Date().toISOString() };
+    setRecords((current) => current.map((item) => item.id === record.id ? updated : item));
+    notify("Переміщено в архів");
   }
 
   async function restoreRecord(record: CrmRecord) {
     const data = { ...record.data, archived: false, archivedAt: "", archivedBy: "" };
-    const response = await fetch("/api/data", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: record.id, data }) });
-    const result = await response.json();
-    if (response.ok) { setRecords((current) => current.map((item) => item.id === record.id ? result.record : item)); notify("Запис відновлено"); }
+    const updated = { ...record, data, updatedAt: new Date().toISOString() };
+    setRecords((current) => current.map((item) => item.id === record.id ? updated : item));
+    notify("Запис відновлено");
   }
 
   async function convertLead(record: CrmRecord) {
@@ -300,7 +310,7 @@ function Settings({ settings, setSettings, notify }: { settings: Record<string, 
   const [form, setForm] = useState({ googleSheetsUrl: settings.googleSheetsUrl ?? "", telegramBotToken: settings.telegramBotToken ?? "", telegramChatId: settings.telegramChatId ?? "", leadReminderHours: settings.leadReminderHours ?? "24", paymentReminderDays: settings.paymentReminderDays ?? "3", accessReminderDays: settings.accessReminderDays ?? "3" });
   const [saving, setSaving] = useState(false);
   const set = (key: string, next: string) => setForm((current) => ({ ...current, [key]: next }));
-  async function save() { setSaving(true); const entries = Object.entries(form); const responses = await Promise.all(entries.map(([key, val]) => fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key, value: val }) }))); setSaving(false); if (responses.every((response) => response.ok)) { setSettings({ ...settings, ...form }); notify("Налаштування збережено"); } else notify("Помилка збереження"); }
+  async function save() { setSaving(true); const next = { ...settings, ...form }; window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(next)); setSettings(next); setSaving(false); notify("Налаштування збережено"); }
   async function testTelegram() { const response = await fetch("/api/telegram", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "test" }) }); notify(response.ok ? "Тестове повідомлення надіслано" : "Перевір токен і Chat ID"); }
   async function reminders() { const response = await fetch("/api/telegram", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "reminders" }) }); const result = await response.json(); notify(response.ok ? result.count ? `Надіслано ${result.count} нагадувань` : "Термінових нагадувань немає" : "Telegram не підключено"); }
   async function sync() { const response = await fetch("/api/sync", { method: "POST" }); notify(response.ok ? "Google Таблицю синхронізовано" : "Помилка синхронізації"); }
