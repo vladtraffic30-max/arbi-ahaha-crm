@@ -21,7 +21,6 @@ export default function AuthGate() {
   const [member, setMember] = useState<Member | null>(null);
   const [checking, setChecking] = useState(true);
   const [email, setEmail] = useState("evgen.aff1@gmail.com");
-  const [code, setCode] = useState("");
   const [sent, setSent] = useState(false);
   const [message, setMessage] = useState("");
   const [membersOpen, setMembersOpen] = useState(false);
@@ -61,17 +60,10 @@ export default function AuthGate() {
 
   async function sendCode(event: FormEvent) {
     event.preventDefault(); setMessage("Надсилаємо лист…");
-    const response = await fetch(`${SUPABASE_URL}/auth/v1/otp`, { method: "POST", headers: headers(), body: JSON.stringify({ email: email.trim().toLowerCase(), create_user: true, gotrue_meta_security: {}, options: { email_redirect_to: window.location.origin } }) });
+    const redirectTo = "https://arbi-ahaha-crm.vercel.app";
+    const response = await fetch(`${SUPABASE_URL}/auth/v1/otp?redirect_to=${encodeURIComponent(redirectTo)}`, { method: "POST", headers: headers(), body: JSON.stringify({ email: email.trim().toLowerCase(), create_user: true, gotrue_meta_security: {} }) });
     if (!response.ok) { const body = await response.json().catch(() => ({})); setMessage(String(body.msg ?? body.message ?? "Не вдалося надіслати лист")); return; }
-    setSent(true); setMessage("Лист надіслано. Відкрий посилання або введи код із листа.");
-  }
-
-  async function verifyCode(event: FormEvent) {
-    event.preventDefault(); setMessage("Перевіряємо код…");
-    const response = await fetch(`${SUPABASE_URL}/auth/v1/verify`, { method: "POST", headers: headers(), body: JSON.stringify({ email: email.trim().toLowerCase(), token: code.trim(), type: "email" }) });
-    const body = await response.json();
-    if (!response.ok) { setMessage(String(body.msg ?? body.message ?? "Невірний код")); return; }
-    localStorage.setItem(SESSION_KEY, JSON.stringify(body)); setSession(body);
+    setSent(true); setMessage("Лист надіслано. Натисни Sign in у новому листі.");
   }
 
   function signOut(clearMessage = true) {
@@ -80,7 +72,7 @@ export default function AuthGate() {
   }
 
   if (checking) return <div className="auth-screen"><div className="auth-card"><div className="auth-logo">A</div><h1>ARBI X TEAM</h1><p>Перевіряємо доступ…</p></div></div>;
-  if (!session || !member) return <div className="auth-screen"><div className="auth-card"><div className="auth-logo">A</div><span>ЗАКРИТА CRM</span><h1>Вхід по email</h1><p>Увійти можуть тільки користувачі, яких додав власник.</p><form onSubmit={sent ? verifyCode : sendCode}><label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" /></label>{sent && <label>Код із листа<input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 8))} inputMode="numeric" placeholder="123456" /></label>}<button type="submit">{sent ? "Увійти" : "Отримати код"}</button></form>{sent && <button className="auth-link" onClick={() => { setSent(false); setCode(""); setMessage(""); }}>Змінити email</button>}{message && <div className="auth-message">{message}</div>}</div></div>;
+  if (!session || !member) return <div className="auth-screen"><div className="auth-card"><div className="auth-logo">A</div><span>ЗАКРИТА CRM</span><h1>Вхід по email</h1><p>Увійти можуть тільки користувачі, яких додав власник.</p><form onSubmit={sendCode}><label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" /></label><button type="submit">{sent ? "Надіслати посилання ще раз" : "Отримати посилання"}</button></form>{sent && <button className="auth-link" onClick={() => { setSent(false); setMessage(""); }}>Змінити email</button>}{message && <div className="auth-message">{message}</div>}</div></div>;
 
   return <><CRMApp user={{ name: member.name || member.email.split("@")[0], email: member.email }} /><div className="auth-user-tools"><span>{member.email}</span>{member.role === "OWNER" && <button onClick={() => setMembersOpen(true)}>Користувачі</button>}<button onClick={() => signOut()}>Вийти</button></div>{membersOpen && <MembersDialog session={session} onClose={() => setMembersOpen(false)} />}</>;
 }
