@@ -22,6 +22,7 @@ export default function AuthGate() {
   const [checking, setChecking] = useState(true);
   const [email, setEmail] = useState("evgen.aff1@gmail.com");
   const [sent, setSent] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
   const [message, setMessage] = useState("");
   const [membersOpen, setMembersOpen] = useState(false);
 
@@ -45,6 +46,12 @@ export default function AuthGate() {
     void validate(session);
   }, [session]);
 
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = window.setInterval(() => setCooldown((value) => Math.max(0, value - 1)), 1000);
+    return () => window.clearInterval(timer);
+  }, [cooldown]);
+
   async function validate(current: Session) {
     setChecking(true);
     const userResponse = await fetch(`${SUPABASE_URL}/auth/v1/user`, { headers: headers(current.access_token) });
@@ -59,11 +66,21 @@ export default function AuthGate() {
   }
 
   async function sendCode(event: FormEvent) {
-    event.preventDefault(); setMessage("Надсилаємо лист…");
+    event.preventDefault();
+    if (cooldown > 0) return;
+    setMessage("Надсилаємо лист…");
     const redirectTo = "https://arbi-ahaha-crm.vercel.app";
     const response = await fetch(`${SUPABASE_URL}/auth/v1/otp?redirect_to=${encodeURIComponent(redirectTo)}`, { method: "POST", headers: headers(), body: JSON.stringify({ email: email.trim().toLowerCase(), create_user: true, gotrue_meta_security: {} }) });
-    if (!response.ok) { const body = await response.json().catch(() => ({})); setMessage(String(body.msg ?? body.message ?? "Не вдалося надіслати лист")); return; }
-    setSent(true); setMessage("Лист надіслано. Натисни Sign in у новому листі.");
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      const error = String(body.msg ?? body.message ?? "");
+      if (response.status === 429 || error.toLowerCase().includes("rate limit")) {
+        setCooldown(60);
+        setMessage("Забагато повторних запитів. Зачекай 60 секунд — кнопка активується сама.");
+      } else setMessage(error || "Не вдалося надіслати лист");
+      return;
+    }
+    setCooldown(60); setSent(true); setMessage("Лист надіслано. Натисни Sign in у новому листі.");
   }
 
   function signOut(clearMessage = true) {
@@ -72,7 +89,7 @@ export default function AuthGate() {
   }
 
   if (checking) return <div className="auth-screen"><div className="auth-card"><div className="auth-logo">A</div><h1>ARBI X TEAM</h1><p>Перевіряємо доступ…</p></div></div>;
-  if (!session || !member) return <div className="auth-screen"><div className="auth-card"><div className="auth-logo">A</div><span>ЗАКРИТА CRM</span><h1>Вхід по email</h1><p>Увійти можуть тільки користувачі, яких додав власник.</p><form onSubmit={sendCode}><label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" /></label><button type="submit">{sent ? "Надіслати посилання ще раз" : "Отримати посилання"}</button></form>{sent && <button className="auth-link" onClick={() => { setSent(false); setMessage(""); }}>Змінити email</button>}{message && <div className="auth-message">{message}</div>}</div></div>;
+  if (!session || !member) return <div className="auth-screen"><div className="auth-card"><div className="auth-logo">A</div><span>ЗАКРИТА CRM</span><h1>Вхід по email</h1><p>Увійти можуть тільки користувачі, яких додав власник.</p><form onSubmit={sendCode}><label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" /></label><button type="submit" disabled={cooldown > 0}>{cooldown > 0 ? `Повторно через ${cooldown} с` : sent ? "Надіслати посилання ще раз" : "Отримати посилання"}</button></form>{sent && <button className="auth-link" onClick={() => { setSent(false); setMessage(""); }}>Змінити email</button>}{message && <div className="auth-message">{message}</div>}</div></div>;
 
   return <><CRMApp user={{ name: member.name || member.email.split("@")[0], email: member.email }} /><div className="auth-user-tools"><span>{member.email}</span>{member.role === "OWNER" && <button onClick={() => setMembersOpen(true)}>Користувачі</button>}<button onClick={() => signOut()}>Вийти</button></div>{membersOpen && <MembersDialog session={session} onClose={() => setMembersOpen(false)} />}</>;
 }
