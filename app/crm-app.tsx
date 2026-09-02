@@ -105,7 +105,9 @@ export default function CRMApp({ user }: { user: { name: string; email: string }
   }
 
   const groups = useMemo(() => {
-    const result = Object.fromEntries(TYPES.map((type) => [type, []])) as Groups;
+    const result = Object.fromEntries(
+      TYPES.map((type) => [type, [] as CrmRecord[]]),
+    ) as unknown as Groups;
     records.filter((record) => !isArchived(record)).forEach((record) => result[record.type]?.push(record));
     return result;
   }, [records]);
