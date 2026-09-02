@@ -55,7 +55,7 @@ export default function AuthGate() {
     if (!rows[0]) { setMessage("Ця пошта не має доступу до CRM"); signOut(false); return; }
     const next = { ...current, user };
     localStorage.setItem(SESSION_KEY, JSON.stringify(next));
-    setSession(next); setMember(rows[0]); setChecking(false);
+    setMember(rows[0]); setChecking(false);
   }
 
   async function signIn(event: FormEvent) {
